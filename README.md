@@ -102,4 +102,4 @@ winget install DenoLand.Deno
 
 ## License
 
-This project is for personal use only. Respect YouTube's Terms of Service when downloading content.
+This project is licensed under the [MIT License](LICENSE).
