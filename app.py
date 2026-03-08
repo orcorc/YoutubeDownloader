@@ -10,18 +10,16 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Ensure ffmpeg is on PATH (winget installs may not be in current shell's PATH)
+# Auto-discover winget-installed tools not yet on PATH
 FFMPEG_LOCATION = None
-if not shutil.which("ffmpeg"):
-    _winget_ffmpeg = os.path.expandvars(
-        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages"
-    )
-    if os.path.isdir(_winget_ffmpeg):
-        for root, dirs, files in os.walk(_winget_ffmpeg):
-            if "ffmpeg.exe" in files:
-                FFMPEG_LOCATION = root
-                os.environ["PATH"] = root + os.pathsep + os.environ.get("PATH", "")
-                break
+_winget_pkgs = os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages")
+if os.path.isdir(_winget_pkgs):
+    for root, dirs, files in os.walk(_winget_pkgs):
+        if "ffmpeg.exe" in files and not FFMPEG_LOCATION:
+            FFMPEG_LOCATION = root
+            os.environ["PATH"] = root + os.pathsep + os.environ.get("PATH", "")
+        if "deno.exe" in files and not shutil.which("deno"):
+            os.environ["PATH"] = root + os.pathsep + os.environ.get("PATH", "")
 
 
 def sanitize_filename(name):
