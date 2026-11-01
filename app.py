@@ -1,7 +1,10 @@
 import os
 import re
 import shutil
+import tempfile
+import time
 from flask import Flask, render_template, request, jsonify, send_file
+from werkzeug.wsgi import ClosingIterator
 import yt_dlp
 
 app = Flask(__name__)
@@ -9,6 +12,8 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+JOB_PREFIX = ".job-"
+JOB_MAX_AGE = 60 * 60  # seconds; older job folders are treated as leftovers
 
 # Auto-discover winget-installed tools not yet on PATH
 FFMPEG_LOCATION = None
@@ -20,6 +25,15 @@ if os.path.isdir(_winget_pkgs):
             os.environ["PATH"] = root + os.pathsep + os.environ.get("PATH", "")
         if "deno.exe" in files and not shutil.which("deno"):
             os.environ["PATH"] = root + os.pathsep + os.environ.get("PATH", "")
+
+
+def cleanup_stale_jobs():
+    """Remove job folders left behind by earlier downloads (only our own folders)."""
+    cutoff = time.time() - JOB_MAX_AGE
+    for name in os.listdir(DOWNLOAD_DIR):
+        path = os.path.join(DOWNLOAD_DIR, name)
+        if name.startswith(JOB_PREFIX) and os.path.isdir(path) and os.path.getmtime(path) < cutoff:
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def sanitize_filename(name):
@@ -79,15 +93,13 @@ def download():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    # Clean up old files in download dir
-    for f in os.listdir(DOWNLOAD_DIR):
-        try:
-            os.remove(os.path.join(DOWNLOAD_DIR, f))
-        except OSError:
-            pass
+    cleanup_stale_jobs()
+
+    # Each download gets its own folder so other files in DOWNLOAD_DIR are never touched
+    job_dir = tempfile.mkdtemp(prefix=JOB_PREFIX, dir=DOWNLOAD_DIR)
 
     base_opts = {
-        "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s"),
+        "outtmpl": os.path.join(job_dir, "%(title)s.%(ext)s"),
         "quiet": True,
     }
     if FFMPEG_LOCATION:
@@ -116,20 +128,28 @@ def download():
             title = sanitize_filename(info.get("title", "download"))
 
         # Find the downloaded file
-        files = os.listdir(DOWNLOAD_DIR)
+        files = os.listdir(job_dir)
         if not files:
+            shutil.rmtree(job_dir, ignore_errors=True)
             return jsonify({"error": "Download failed - no file produced"}), 500
 
-        filepath = os.path.join(DOWNLOAD_DIR, files[0])
+        filepath = os.path.join(job_dir, files[0])
         ext = os.path.splitext(files[0])[1]
         download_name = f"{title}{ext}"
 
-        return send_file(
+        response = send_file(
             filepath,
             as_attachment=True,
             download_name=download_name,
         )
+        # Windows locks the file while it is being sent, so remove the folder once the
+        # server closes the stream (call_on_close is skipped for send_file's passthrough)
+        response.response = ClosingIterator(
+            response.response, lambda: shutil.rmtree(job_dir, ignore_errors=True)
+        )
+        return response
     except Exception as e:
+        shutil.rmtree(job_dir, ignore_errors=True)
         return jsonify({"error": str(e)}), 500
 
 

@@ -25,20 +25,26 @@ winget install Gyan.FFmpeg
 
 1. **Clone or download** this project
 
-2. **Install Python dependencies:**
+2. **Create a virtual environment:**
 
    ```
    cd "Youtube Downloader"
-   pip install -r requirements.txt
+   python -m venv .venv
    ```
 
-3. **Run the app:**
+3. **Install Python dependencies:**
 
    ```
-   python app.py
+   .venv\Scripts\python -m pip install -r requirements.txt
    ```
 
-4. **Open your browser** and go to:
+4. **Run the app:**
+
+   ```
+   .venv\Scripts\python app.py
+   ```
+
+5. **Open your browser** and go to:
 
    ```
    http://localhost:5000
